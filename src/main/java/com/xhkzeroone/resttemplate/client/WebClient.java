@@ -22,6 +22,7 @@ public class WebClient {
     private final Map<String, String> params = new HashMap<>();
     private String target;
     private Object body;
+    private Class<?> resultType = String.class;
 
     // Default timeouts (ms)
     private int connectTimeout = 5000;
@@ -33,7 +34,6 @@ public class WebClient {
 
     public WebClient(RestTemplate restTemplate) {
         this.restTemplate = restTemplate;
-        setTimeout(connectTimeout, readTimeout);
     }
 
 
@@ -113,7 +113,6 @@ public class WebClient {
 
     // ================== Builder Methods ==================
 
-
     public WebClient timeout(int connectTimeout, int readTimeout) {
         this.connectTimeout = connectTimeout;
         this.readTimeout = readTimeout;
@@ -172,22 +171,32 @@ public class WebClient {
         return this;
     }
 
+    public <T> WebClient result(Class<T> clazz) {
+        this.resultType = clazz;
+        return this;
+    }
+
     // ================== Public Methods ==================
-    public <T> ResponseEntity<T> get(Class<T> clazz) {
-        return execute(HttpMethod.GET, clazz);
+    @SuppressWarnings("unchecked")
+    public <T> ResponseEntity<T> get() {
+        return execute(HttpMethod.GET, (Class<T>) resultType);
     }
 
-    public <T> ResponseEntity<T> post(Class<T> clazz) {
-        return execute(HttpMethod.POST, clazz);
+    @SuppressWarnings("unchecked")
+    public <T> ResponseEntity<T> post() {
+        return execute(HttpMethod.POST, (Class<T>) resultType);
     }
 
-    public <T> ResponseEntity<T> put(Class<T> clazz) {
-        return execute(HttpMethod.PUT, clazz);
+    @SuppressWarnings("unchecked")
+    public <T> ResponseEntity<T> put() {
+        return execute(HttpMethod.PUT, (Class<T>) resultType);
     }
 
-    public <T> ResponseEntity<T> delete(Class<T> clazz) {
-        return execute(HttpMethod.DELETE, clazz);
+    @SuppressWarnings("unchecked")
+    public <T> ResponseEntity<T> delete() {
+        return execute(HttpMethod.DELETE, (Class<T>) resultType);
     }
+
 
     // ================== Core Execute Logic ==================
     private <T> ResponseEntity<T> execute(HttpMethod method, Class<T> clazz) {

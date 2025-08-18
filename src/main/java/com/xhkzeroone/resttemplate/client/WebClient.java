@@ -13,9 +13,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.net.URI;
 import java.util.*;
 
-/**
- * Custom WebClient wrapper for RestTemplate with middleware, logging, retry, and auth.
- */
+
 public class WebClient {
     private RestTemplate restTemplate = new RestTemplate();
     private final List<Middleware> middlewares = new ArrayList<>();

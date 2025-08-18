@@ -32,7 +32,9 @@ public class UserService {
 
 
     public static void main(String[] args) {
+
         WebClient client = new WebClient()
+                .baseUrl("https://jsonplaceholder.typicode.com/posts")
                 .use(new WebClient.Middleware() {
                     @Override
                     public void beforeRequest(HttpMethod method, URI uri, HttpHeaders headers, Object body) {
@@ -59,15 +61,23 @@ public class UserService {
                     }
                 })
                 .basicAuth("username", "password")
-                .target("https://jsonplaceholder.typicode.com/posts/{id}")
                 .timeout(5000, 5000)
+                .enableLogging();
+
+        ResponseEntity<Post> response = client
+                .target("/{id}")
+                .use(new WebClient.Middleware() {
+                    @Override
+                    public void beforeRequest(HttpMethod method, URI uri, HttpHeaders headers, Object body) {
+                        System.out.printf("------------------Before request %s%n", method);
+                    }
+                })
                 .pathVar("id", "1")
                 .param("username", "username")
                 .header("Accept", "application/json")
                 .param("extra", "123")
                 .result(Post.class)
-                .enableLogging();
-        ResponseEntity<Post>  response = client.get();
+                .get();
         System.out.printf(response.getBody().toString());
     }
 

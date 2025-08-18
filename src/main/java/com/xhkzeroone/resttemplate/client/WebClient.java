@@ -4,7 +4,6 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
-import org.springframework.http.client.ClientHttpRequestFactory;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -15,20 +14,14 @@ import java.util.*;
 
 
 public class WebClient {
-    private RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate;
     private final List<Middleware> middlewares = new ArrayList<>();
-    private final Map<String, String> headers = new HashMap<>();
-    private final Map<String, String> pathVars = new HashMap<>();
-    private final Map<String, String> params = new HashMap<>();
-    private String target;
-    private Object body;
-    private Class<?> resultType = String.class;
-
-    // Default timeouts (ms)
+    private String baseUrl;
     private int connectTimeout = 5000;
     private int readTimeout = 10000;
 
     public WebClient() {
+        this.restTemplate = new RestTemplate();
         setTimeout(connectTimeout, readTimeout);
     }
 
@@ -36,9 +29,11 @@ public class WebClient {
         this.restTemplate = restTemplate;
     }
 
-
-    public WebClient(int connectTimeout, int readTimeout) {
+    public WebClient timeout(int connectTimeout, int readTimeout) {
+        this.connectTimeout = connectTimeout;
+        this.readTimeout = readTimeout;
         setTimeout(connectTimeout, readTimeout);
+        return this;
     }
 
     private void setTimeout(int connectTimeout, int readTimeout) {
@@ -111,142 +106,159 @@ public class WebClient {
         return this;
     }
 
-    // ================== Builder Methods ==================
-
-    public WebClient timeout(int connectTimeout, int readTimeout) {
-        this.connectTimeout = connectTimeout;
-        this.readTimeout = readTimeout;
-        setTimeout(connectTimeout, readTimeout);
+    public WebClient baseUrl(String baseUrl) {
+        this.baseUrl = baseUrl;
         return this;
     }
 
-    public WebClient requestFactory(ClientHttpRequestFactory factory) {
-        this.restTemplate.setRequestFactory(factory);
-        return this;
+    // ==== Factory method để tạo Request mới ====
+    public RequestBuilder target(String target) {
+        return new RequestBuilder(this, target);
     }
 
-    public WebClient target(String target) {
-        this.target = target;
-        return this;
+    RestTemplate getRestTemplate() {
+        return restTemplate;
     }
 
-    public WebClient header(String key, String value) {
-        this.headers.put(key, value);
-        return this;
+    List<Middleware> getMiddlewares() {
+        return middlewares;
     }
 
-    public WebClient headers(Map<String, String> headers) {
-        if (headers != null) {
-            this.headers.putAll(headers);
-        }
-        return this;
+    int getConnectTimeout() {
+        return connectTimeout;
     }
 
-    public WebClient pathVar(String key, String value) {
-        this.pathVars.put(key, value);
-        return this;
+    int getReadTimeout() {
+        return readTimeout;
     }
 
-    public WebClient pathVars(Map<String, String> pathVars) {
-        if (pathVars != null) {
-            this.pathVars.putAll(pathVars);
-        }
-        return this;
-    }
-
-    public WebClient param(String key, String value) {
-        this.params.put(key, value);
-        return this;
-    }
-
-    public WebClient params(Map<String, String> params) {
-        if (params != null) {
-            this.params.putAll(params);
-        }
-        return this;
-    }
-
-    public WebClient body(Object body) {
-        this.body = body;
-        return this;
-    }
-
-    public <T> WebClient result(Class<T> clazz) {
-        this.resultType = clazz;
-        return this;
-    }
-
-    // ================== Public Methods ==================
-    @SuppressWarnings("unchecked")
-    public <T> ResponseEntity<T> get() {
-        return execute(HttpMethod.GET, (Class<T>) resultType);
-    }
-
-    @SuppressWarnings("unchecked")
-    public <T> ResponseEntity<T> post() {
-        return execute(HttpMethod.POST, (Class<T>) resultType);
-    }
-
-    @SuppressWarnings("unchecked")
-    public <T> ResponseEntity<T> put() {
-        return execute(HttpMethod.PUT, (Class<T>) resultType);
-    }
-
-    @SuppressWarnings("unchecked")
-    public <T> ResponseEntity<T> delete() {
-        return execute(HttpMethod.DELETE, (Class<T>) resultType);
+    String getBaseUrl() {
+        return baseUrl;
     }
 
 
-    // ================== Core Execute Logic ==================
-    private <T> ResponseEntity<T> execute(HttpMethod method, Class<T> clazz) {
-        URI uri = UriComponentsBuilder.fromUriString(this.target)
-                .queryParams(toMultiValueMap(this.params))
-                .buildAndExpand(this.pathVars)
-                .toUri();
+    public static class RequestBuilder {
+        private final WebClient client;
+        private final String target;
+        private final List<Middleware> middlewares = new ArrayList<>();
+        private final Map<String, String> headers = new HashMap<>();
+        private final Map<String, String> pathVars = new HashMap<>();
+        private final Map<String, String> params = new HashMap<>();
+        private Object body;
+        private Class<?> resultType = String.class;
 
-        HttpHeaders httpHeaders = new HttpHeaders();
-        this.headers.forEach(httpHeaders::add);
-
-        for (Middleware mw : middlewares) {
-            mw.beforeRequest(method, uri, httpHeaders, this.body);
+        RequestBuilder(WebClient client, String target) {
+            this.client = client;
+            this.target = target;
         }
 
-        HttpEntity<Object> entity = (method == HttpMethod.GET || method == HttpMethod.DELETE)
-                ? new HttpEntity<>(httpHeaders)
-                : new HttpEntity<>(this.body, httpHeaders);
-
-        ResponseEntity<T> response;
-        RetryMiddleware retryMw = getRetryMiddleware();
-        if (retryMw != null) {
-            response = retryMw.executeWithRetry(() -> this.restTemplate.exchange(uri, method, entity, clazz));
-        } else {
-            response = this.restTemplate.exchange(uri, method, entity, clazz);
+        public RequestBuilder header(String key, String value) {
+            headers.put(key, value);
+            return this;
         }
 
-        for (Middleware mw : middlewares) {
-            mw.afterResponse(method, uri, httpHeaders, this.body, response);
+        public RequestBuilder param(String key, String value) {
+            params.put(key, value);
+            return this;
         }
 
-        return response;
-    }
+        public RequestBuilder pathVar(String key, String value) {
+            pathVars.put(key, value);
+            return this;
+        }
 
-    private RetryMiddleware getRetryMiddleware() {
-        for (Middleware mw : middlewares) {
-            if (mw instanceof RetryMiddleware) {
-                return (RetryMiddleware) mw;
+        public RequestBuilder body(Object body) {
+            this.body = body;
+            return this;
+        }
+
+        public <T> RequestBuilder result(Class<T> clazz) {
+            this.resultType = clazz;
+            return this;
+        }
+
+        @SuppressWarnings(value = "unchecked")
+        public <T> ResponseEntity<T> get() {
+            return execute(HttpMethod.GET, (Class<T>) resultType);
+        }
+
+        @SuppressWarnings(value = "unchecked")
+        public <T> ResponseEntity<T> post() {
+            return execute(HttpMethod.POST, (Class<T>) resultType);
+        }
+
+        @SuppressWarnings(value = "unchecked")
+        public <T> ResponseEntity<T> put() {
+            return execute(HttpMethod.PUT, (Class<T>) resultType);
+        }
+
+        @SuppressWarnings(value = "unchecked")
+        public <T> ResponseEntity<T> delete() {
+            return execute(HttpMethod.DELETE, (Class<T>) resultType);
+        }
+
+        // ================== Middleware Control ==================
+        public RequestBuilder use(Class<? extends Middleware> clazz) {
+            try {
+                this.middlewares.add(clazz.getDeclaredConstructor().newInstance());
+            } catch (NoSuchMethodException | InvocationTargetException |
+                     InstantiationException | IllegalAccessException e) {
+                throw new RuntimeException("Cannot initialize middleware: " + clazz.getName(), e);
             }
+            return this;
         }
-        return null;
+
+        public RequestBuilder use(Middleware middleware) {
+            this.middlewares.add(middleware);
+            return this;
+        }
+
+        private <T> ResponseEntity<T> execute(HttpMethod method, Class<T> clazz) {
+            String fullUrl = Optional.ofNullable(this.target)
+                    .map(target -> {
+                        if (client.getBaseUrl() != null && !target.startsWith("http")) {
+                            return client.getBaseUrl() + target;
+                        }
+                        return target;
+                    })
+                    .orElse(client.getBaseUrl());
+
+            URI uri = UriComponentsBuilder.fromUriString(fullUrl)
+                    .queryParams(toMultiValueMap(this.params))
+                    .buildAndExpand(this.pathVars)
+                    .toUri();
+
+            HttpHeaders httpHeaders = new HttpHeaders();
+            headers.forEach(httpHeaders::add);
+
+            List<Middleware> middlewares = new ArrayList<>(client.getMiddlewares());
+            middlewares.addAll(this.middlewares);
+            for (WebClient.Middleware mw : middlewares) {
+                mw.beforeRequest(method, uri, httpHeaders, this.body);
+            }
+
+            HttpEntity<Object> entity = (method == HttpMethod.GET || method == HttpMethod.DELETE)
+                    ? new HttpEntity<>(httpHeaders)
+                    : new HttpEntity<>(this.body, httpHeaders);
+
+            ResponseEntity<T> response = client.getRestTemplate().exchange(uri, method, entity, clazz);
+
+            for (WebClient.Middleware mw : middlewares) {
+                mw.afterResponse(method, uri, httpHeaders, this.body, response);
+            }
+
+            return response;
+        }
+
+        private static org.springframework.util.MultiValueMap<String, String> toMultiValueMap(Map<String, String> map) {
+            org.springframework.util.LinkedMultiValueMap<String, String> mvMap = new org.springframework.util.LinkedMultiValueMap<>();
+            if (map != null) {
+                map.forEach(mvMap::add);
+            }
+            return mvMap;
+        }
     }
 
-    private static org.springframework.util.MultiValueMap<String, String> toMultiValueMap(Map<String, String> map) {
-        org.springframework.util.LinkedMultiValueMap<String, String> mvMap = new org.springframework.util.LinkedMultiValueMap<>();
-        if (map != null) {
-            map.forEach(mvMap::add);
-        }
-        return mvMap;
-    }
 
     // ================== Middleware Interface ==================
     public interface Middleware {
